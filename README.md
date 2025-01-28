@@ -62,7 +62,7 @@ Usage
 
         -   The user who wrote the longest post (by body length).
 
-        -   An additional query to identify users who wrote posts containing more than 100 words.
+        -   An additional query to identify the top users by total content length.
 
 5.  **Code Organization**:
 
