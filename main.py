@@ -3,12 +3,10 @@ import requests
 from pydantic import BaseModel, Field, ValidationError
 import duckdb
 
-
 # Constants
 POSTS_URL = "https://jsonplaceholder.typicode.com/posts"
 USERS_URL = "https://jsonplaceholder.typicode.com/users"
-DUCKDB_FILE = "data/posts_users.duckdb"
-
+DUCKDB_FILE = "posts_users.duckdb"
 
 # Step 1: Define Pydantic Models for Validation
 class Post(BaseModel):
@@ -36,35 +34,40 @@ def fetch_data(url: str) -> List[Any]:
 def validate_data(data: List[Any], model: BaseModel) -> List[Any]:
     """Validate data using a Pydantic model."""
     try:
-        return [model(**item).dict() for item in data]
+        return [model(**item).model_dump() for item in data]  # Use model_dump() for Pydantic v2 compatibility
     except ValidationError as e:
         raise ValueError(f"Data validation failed: {e}")
 
 
 # Step 3: Store Data in DuckDB
+def sanitize_string(value: str) -> str:
+    """Sanitize a string for SQL insertion."""
+    return value.replace("'", "''")  # Escape single quotes
+
+
 def store_in_duckdb(posts: List[dict], users: List[dict], duckdb_file: str) -> None:
     """
     Store posts and users data into DuckDB tables.
     """
-    conn = duckdb.connect(duckdb_file)
+    conn = duckdb.connect(database=duckdb_file, read_only=False)
 
-    # Create tables and insert data
-    conn.execute("CREATE OR REPLACE TABLE posts AS SELECT * FROM (VALUES {})".format(
-        ",".join(
-            f"({post['userId']}, {post['id']}, '{post['title'].replace('\'', '\'\'')}', '{post['body'].replace('\'', '\'\'')}')"
-            for post in posts
+    # Create and populate posts table
+    conn.execute("CREATE OR REPLACE TABLE posts (userId INT, id INT, title STRING, body STRING)")
+    for post in posts:
+        conn.execute(
+            "INSERT INTO posts VALUES (?, ?, ?, ?)",
+            (post['userId'], post['id'], sanitize_string(post['title']), sanitize_string(post['body']))
         )
-    ))
 
-    conn.execute("CREATE OR REPLACE TABLE users AS SELECT * FROM (VALUES {})".format(
-        ",".join(
-            f"({user['id']}, '{user['name'].replace('\'', '\'\'')}', '{user['username'].replace('\'', '\'\'')}', '{user['email'].replace('\'', '\'\'')}')"
-            for user in users
+    # Create and populate users table
+    conn.execute("CREATE OR REPLACE TABLE users (id INT, name STRING, username STRING, email STRING)")
+    for user in users:
+        conn.execute(
+            "INSERT INTO users VALUES (?, ?, ?, ?)",
+            (user['id'], sanitize_string(user['name']), sanitize_string(user['username']), sanitize_string(user['email']))
         )
-    ))
 
     print(f"Data successfully stored in DuckDB file at: {duckdb_file}")
-
     conn.close()
 
 
@@ -73,7 +76,7 @@ def query_duckdb(duckdb_file: str) -> None:
     """
     Query the DuckDB tables to answer specific questions.
     """
-    conn = duckdb.connect(duckdb_file)
+    conn = duckdb.connect(database=duckdb_file, read_only=True)
 
     # Query 1: Number of posts per user
     print("Number of posts per user:")
@@ -99,15 +102,19 @@ def query_duckdb(duckdb_file: str) -> None:
         """).fetchdf()
     )
 
-    # Query 3: Average post length per user
-    print("\nAverage post length per user:")
+    # Query 3: Top 3 users by total content length
+    print("\nTop 3 users by total content length:")
     print(
         conn.execute("""
-            SELECT users.name, AVG(LENGTH(posts.body)) AS avg_post_length
-            FROM posts
-            JOIN users ON posts.userId = users.id
-            GROUP BY users.name
-            ORDER BY avg_post_length DESC
+            SELECT 
+                u.name AS user_name,
+                SUM(LENGTH(p.body)) AS total_content_length
+            FROM posts p
+            JOIN users u
+            ON p.userId = u.id
+            GROUP BY u.name
+            ORDER BY total_content_length DESC
+            LIMIT 3
         """).fetchdf()
     )
 
