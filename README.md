@@ -1,5 +1,3 @@
-# coding_challenge
-
 Usage
 -----
 
@@ -9,11 +7,15 @@ Usage
 
 -   Required libraries (install via `pip install -r requirements.txt`):
 
-    -   httpx
+    -   requests
 
     -   pydantic
 
     -   duckdb
+ 
+    -   numpy
+ 
+    -   pandas 
 
 ### Execution
 
@@ -31,7 +33,8 @@ Usage
 
 
 
-**Design Choices for the Solution**
+
+### Design Choices for the Solution
 
 1.  **Data Fetching**:
 
